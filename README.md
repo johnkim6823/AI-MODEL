@@ -32,9 +32,11 @@
 > **딥러닝(Deep Learning)** 과 **메타러닝(Meta-Learning)** 은 위 3분류와 '나란히'
 > 있는 개념이 아니라 가로지르는 개념이다.
 > - **딥러닝**: 여러 층을 쌓은 '신경망'이라는 *모델/도구*. 지도·비지도·강화학습
->   어디에나 쓰인다. (이 자료에선 지도학습 분류에 적용)
-> - **메타러닝**: 하나의 문제를 푸는 게 아니라 *'새 문제에 빨리 적응하는 능력'을
->   배우는 학습 방식*. (few-shot 학습)
+>   어디에나 쓰인다.
+> - **심층 강화학습(Deep RL)**: 강화학습에 신경망을 결합한 것. (DQN, A2C, SAC 등)
+> - **메타러닝**: *'새 문제에 빨리 적응하는 능력'을 배우는 학습 방식* (few-shot).
+> - **모델 결합**: 한 모델만 쓰지 않고 *여러 모델을 합쳐* 더 좋고 안정적인 결과를
+>   내는 것. (앙상블, 메타러닝+RL 하이브리드)
 
 ---
 
@@ -86,6 +88,22 @@ AI-MODEL/
 │   ├── 07_prototypical_networks.py    Prototypical Networks (거리 기반)
 │   └── 08_matching_networks.py        Matching Networks (유사도 어텐션)
 │
+├── 07_deep_rl/                    # 7. 심층 강화학습 (DRL)
+│   ├── envs.py                        CartPole(이산)·Pendulum(연속) 환경 직접 구현
+│   ├── drl_nn.py                      입력기울기 지원 MLP + Adam + 리플레이버퍼
+│   ├── dqn.py / a2c.py / a3c.py       DQN·DDQN / A2C / A3C 에이전트
+│   ├── ddpg.py / sac.py               DDPG / SAC (연속 제어)
+│   ├── 01_dqn_ddqn_cartpole.py        DQN vs Double DQN
+│   ├── 02_a2c_a3c_cartpole.py         A2C vs A3C
+│   └── 03_ddpg_sac_pendulum.py        DDPG vs SAC (연속)
+│
+├── 08_model_combination/          # 8. 모델 결합 (앙상블 / 하이브리드)
+│   ├── exp_config.py                  config + 커맨드라인 인자 둘 다 지원
+│   ├── ensemble.py                    voting / soft / stacking 앙상블
+│   ├── hybrid_core.py                 Reptile + 정책경사(RL) 하이브리드 코어
+│   ├── 01_ensemble_experiment.py      여러 모델 합치기 (입력 차원 sweep) ⭐설정가능
+│   └── 02_meta_rl_hybrid.py           메타러닝+RL 하이브리드 ⭐설정가능
+│
 ├── outputs/                       # 생성된 그래프(png)가 저장되는 곳
 ├── requirements.txt
 └── run_all.py                     # 모든 예제 한 번에 실행
@@ -104,6 +122,21 @@ python 01_supervised_learning/01_linear_regression.py
 
 # 3) 전체 실행 → outputs/ 폴더에 그래프가 모두 생성됨
 python run_all.py
+```
+
+### 🎛️ 직접 값을 넣어 실험하기 (8번 모델 결합)
+
+`08_model_combination/` 의 실험은 **config 딕셔너리**(파일 상단)와
+**커맨드라인 인자**를 둘 다 지원한다. 그냥 실행하면 기본값을 쓰고,
+인자로 값을 덮어쓸 수 있다.
+
+```bash
+# 앙상블: 합칠 모델·결합방식·입력차원 등을 직접 지정
+python 08_model_combination/01_ensemble_experiment.py \
+       --models logreg,tree,svm,forest --ensemble stacking --n_features 100
+
+# 메타러닝+RL 하이브리드: 입력차원·적응스텝·메타보폭 등 조절
+python 08_model_combination/02_meta_rl_hybrid.py --d 20 --inner_steps 15 --meta_lr 0.2
 ```
 
 > 그래프는 화면에 띄우지 않고 `outputs/` 폴더에 **PNG 파일로 저장**됩니다.
@@ -171,6 +204,26 @@ python run_all.py
 | **N-way K-shot** | N개 클래스를 각 K개 예시로 구분하는 few-shot 분류 문제 |
 | **메트릭 기반** | 임베딩 공간의 거리/유사도로 분류 (ProtoNet, Matching Networks) |
 | **프로토타입 (Prototype)** | 한 클래스 서포트 임베딩들의 평균 (ProtoNet) |
+
+### 심층 강화학습(DRL) 용어
+
+| 용어 | 의미 |
+|------|------|
+| **DQN / Double DQN** | 신경망으로 Q값을 근사하는 가치 기반 DRL (DDQN은 과대평가 완화) |
+| **리플레이 버퍼** | 과거 경험을 저장해 무작위로 뽑아 학습 (상관성↓) |
+| **타깃 네트워크** | 목표값 계산용 별도 네트워크(천천히 갱신)로 학습 안정화 |
+| **액터-크리틱** | 정책망(액터) + 가치망(크리틱)을 함께 학습 (A2C/A3C/DDPG/SAC) |
+| **A2C / A3C** | 어드밴티지 액터-크리틱 / 그 비동기·병렬 워커 버전 |
+| **DDPG** | 연속 행동용 결정적 정책 경사 (off-policy) |
+| **SAC** | 연속 행동용, 엔트로피 보상 + 트윈 크리틱 (안정적) |
+
+### 모델 결합 용어
+
+| 용어 | 의미 |
+|------|------|
+| **앙상블 (Ensemble)** | 여러 모델의 예측을 합쳐 더 좋고 안정적인 결과 |
+| **voting / soft / stacking** | 다수결 / 확률 평균 / 메타모델로 합치는 방식 |
+| **하이브리드 (Hybrid)** | 서로 다른 패러다임을 결합 (예: 메타러닝 + 강화학습) |
 
 ---
 
@@ -240,3 +293,37 @@ CNN(합성곱)                → 이미지의 국소 패턴(모서리 등)을 �
 
 `06_meta_learning/`에서 MAML·Reptile·Meta-SGD(최적화 기반)와
 ProtoNet·Matching Networks(메트릭 기반)를 모두 확인하세요!
+
+---
+
+## 🎮 심층 강화학습(DRL) 직관
+
+```
+표(Q-table)로는 불가능 → 상태가 연속이면 '신경망'으로 Q/정책을 근사 (= DRL)
+
+가치 기반 : DQN, Double DQN   (Q값을 신경망으로; 리플레이+타깃망으로 안정화)
+정책 기반 : A2C, A3C          (정책을 직접 학습; A3C는 병렬 워커로 가속)
+연속 제어 : DDPG, SAC         (토크 같은 연속 행동; SAC는 엔트로피로 더 안정적)
+```
+
+`07_deep_rl/`에서 CartPole(균형 잡기)·Pendulum(진자 세우기)을 학습하는
+6가지 DRL의 학습 곡선을 확인하세요!
+
+---
+
+## 🧬 모델 결합 직관 (여러 모델 합치기)
+
+```
+[왜?] 모델마다 잘하는/실수하는 부분이 달라서, 합치면 실수가 상쇄된다.
+
+앙상블        : 여러 종류 모델의 예측을 합침 (voting/soft/stacking)
+              → '최고 단일 모델'과 대등 + '평균 단일 모델'보다 훨씬 나음
+              → 입력이 많고 복잡할수록 이점이 커진다 ✅
+하이브리드     : 다른 패러다임을 결합 (예: Reptile로 초기화 → RL로 빠르게 적응)
+              → 새 과제에 가장 빠르게 적응
+
+설정 가능: config 딕셔너리 또는 커맨드라인 인자로 직접 값을 넣어 실험.
+```
+
+`08_model_combination/`에서 앙상블 실험과 메타러닝+RL 하이브리드를
+직접 값을 바꿔가며 실험하세요!

@@ -40,6 +40,11 @@ SCRIPTS = [
     ("06_meta_learning", "06_maml_first_vs_second_order.py"),
     ("06_meta_learning", "07_prototypical_networks.py"),
     ("06_meta_learning", "08_matching_networks.py"),
+    ("07_deep_rl", "01_dqn_ddqn_cartpole.py"),
+    ("07_deep_rl", "02_a2c_a3c_cartpole.py"),
+    ("07_deep_rl", "03_ddpg_sac_pendulum.py"),
+    ("08_model_combination", "01_ensemble_experiment.py"),
+    ("08_model_combination", "02_meta_rl_hybrid.py"),
 ]
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
