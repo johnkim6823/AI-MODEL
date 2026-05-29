@@ -65,17 +65,26 @@ AI-MODEL/
 │   └── 03_rl_hyperparameter_experiments.py 학습률·탐험율·할인율 → 성능
 │
 ├── 05_deep_learning/              # 5. 딥러닝 (신경망)
-│   ├── neural_network.py              다층 신경망(MLP) + 역전파 (from scratch)
+│   ├── neural_network.py              다층 신경망(MLP) + 역전파 + 정규화/옵티마이저
+│   ├── cnn.py                         합성곱 신경망(CNN) 직접 구현 (im2col)
 │   ├── 01_perceptron_to_mlp.py        왜 은닉층이 필요한가 (XOR 문제)
 │   ├── 02_mlp_classification.py       신경망 비선형 분류 + 학습 곡선
-│   └── 03_depth_activation_experiment.py 망 깊이·너비·활성화 → 정확도
+│   ├── 03_depth_activation_experiment.py 망 깊이·너비·활성화 → 정확도
+│   ├── 04_regularization.py           L2·드롭아웃으로 과적합 줄이기
+│   ├── 05_optimizer_comparison.py     SGD vs Momentum vs Adam
+│   └── 06_cnn_basics.py               합성곱 직관 + 학습된 필터 (CNN)
 │
 ├── 06_meta_learning/              # 6. 메타러닝 (배우는 법을 배우기)
 │   ├── meta_core.py                   사인파 태스크 + 함수형 MLP + 메타 알고리즘
+│   ├── metric_core.py                 few-shot 분류 태스크 + 임베딩망 + 메트릭 손실
 │   ├── 01_few_shot_sine_problem.py    few-shot 문제 소개
 │   ├── 02_maml.py                     MAML (빠른 적응 초기값 학습)
 │   ├── 03_reptile.py                  Reptile (더 단순한 메타러닝)
-│   └── 04_compare_methods.py          Random/Joint/Reptile/MAML 비교 + K-shot
+│   ├── 04_compare_methods.py          Random/Joint/Reptile/MAML 비교 + K-shot
+│   ├── 05_meta_sgd.py                 Meta-SGD (학습률까지 학습)
+│   ├── 06_maml_first_vs_second_order.py  1차(FOMAML) vs 2차 MAML
+│   ├── 07_prototypical_networks.py    Prototypical Networks (거리 기반)
+│   └── 08_matching_networks.py        Matching Networks (유사도 어텐션)
 │
 ├── outputs/                       # 생성된 그래프(png)가 저장되는 곳
 ├── requirements.txt
@@ -141,6 +150,12 @@ python run_all.py
 | **활성화 함수 (Activation)** | 비선형성을 주는 함수 (ReLU/tanh/sigmoid). 딥러닝의 표현력 핵심 |
 | **역전파 (Backpropagation)** | 손실의 기울기를 출력→입력으로 거꾸로 전파해 모든 가중치 기울기를 구함 |
 | **ReLU** | max(0, x). 가장 널리 쓰는 활성화 함수 (빠르고 안정적) |
+| **정규화 (Regularization)** | 과적합 억제 기법. L2(가중치 감쇠), 드롭아웃 등 |
+| **드롭아웃 (Dropout)** | 학습 중 뉴런 일부를 무작위로 꺼 특정 뉴런 의존을 줄임 |
+| **옵티마이저 (Optimizer)** | 기울기로 가중치를 갱신하는 규칙 (SGD/Momentum/Adam) |
+| **Adam** | 파라미터별 보폭을 자동 조절하는 옵티마이저 (보통 빠르고 안정적) |
+| **합성곱/CNN** | 작은 필터를 이미지에 미끄러뜨려 국소 패턴을 추출하는 신경망 |
+| **풀링 (Pooling)** | 특징맵을 줄여(예: 2x2 최댓값) 계산량↓·위치 강건성↑ |
 
 ### 메타러닝 용어
 
@@ -151,7 +166,11 @@ python run_all.py
 | **few-shot 학습** | 아주 적은 예시(K개)만으로 새 문제를 푸는 것 |
 | **서포트셋/쿼리셋** | 적응에 쓰는 예시 / 적응 후 평가에 쓰는 예시 |
 | **이너/아우터 루프** | 한 태스크에 적응하는 과정 / 초기값을 개선하는 과정 |
-| **MAML / Reptile** | 대표적인 메타러닝 알고리즘 (빠르게 적응하는 '초기값'을 학습) |
+| **MAML / Reptile** | 최적화 기반 메타러닝 (빠르게 적응하는 '초기값'을 학습) |
+| **Meta-SGD** | 초기값뿐 아니라 '파라미터별 학습률'까지 학습 |
+| **N-way K-shot** | N개 클래스를 각 K개 예시로 구분하는 few-shot 분류 문제 |
+| **메트릭 기반** | 임베딩 공간의 거리/유사도로 분류 (ProtoNet, Matching Networks) |
+| **프로토타입 (Prototype)** | 한 클래스 서포트 임베딩들의 평균 (ProtoNet) |
 
 ---
 
@@ -195,9 +214,12 @@ python run_all.py
 은닉층 + 활성화 함수        → 곡선 경계를 만들어 복잡한 패턴도 학습 ✅
 망을 키우면(깊이·너비↑)     → 표현력↑ (단, 너무 키우면 과적합 위험)
 활성화 함수                → 보통 ReLU가 빠르고 안정적, sigmoid는 느려지기 쉬움
+정규화(L2/드롭아웃)         → 과적합을 줄여 테스트 성능↑
+옵티마이저(Adam 등)         → SGD보다 빠르고 안정적으로 수렴
+CNN(합성곱)                → 이미지의 국소 패턴(모서리 등)을 효율적으로 추출
 ```
 
-`05_deep_learning/`에서 XOR 문제와 망 구조·활성화 함수 실험을 확인하세요!
+`05_deep_learning/`에서 XOR·망 구조·활성화·정규화·옵티마이저·CNN을 확인하세요!
 
 ---
 
@@ -210,7 +232,11 @@ python run_all.py
 무작위 초기값 → 점 10개로는 새 사인파를 못 맞힘
 메타학습 초기값(MAML/Reptile) → 같은 10개로 몇 스텝 만에 잘 맞힘 ✅
 예시 수 K가 많을수록 → 적응 후 오차↓
+
+[메타러닝 두 갈래]
+최적화 기반 : MAML, Reptile, Meta-SGD (좋은 초기값/학습률을 배워 빠르게 적응)
+메트릭 기반 : ProtoNet, Matching Networks (임베딩 공간의 거리/유사도로 분류)
 ```
 
-`06_meta_learning/`에서 MAML·Reptile이 무작위/공동학습 초기값보다
-얼마나 빨리 적응하는지 그래프로 확인하세요!
+`06_meta_learning/`에서 MAML·Reptile·Meta-SGD(최적화 기반)와
+ProtoNet·Matching Networks(메트릭 기반)를 모두 확인하세요!

@@ -29,10 +29,17 @@ SCRIPTS = [
     ("05_deep_learning", "01_perceptron_to_mlp.py"),
     ("05_deep_learning", "02_mlp_classification.py"),
     ("05_deep_learning", "03_depth_activation_experiment.py"),
+    ("05_deep_learning", "04_regularization.py"),
+    ("05_deep_learning", "05_optimizer_comparison.py"),
+    ("05_deep_learning", "06_cnn_basics.py"),
     ("06_meta_learning", "01_few_shot_sine_problem.py"),
     ("06_meta_learning", "02_maml.py"),
     ("06_meta_learning", "03_reptile.py"),
     ("06_meta_learning", "04_compare_methods.py"),
+    ("06_meta_learning", "05_meta_sgd.py"),
+    ("06_meta_learning", "06_maml_first_vs_second_order.py"),
+    ("06_meta_learning", "07_prototypical_networks.py"),
+    ("06_meta_learning", "08_matching_networks.py"),
 ]
 
 ROOT = os.path.dirname(os.path.abspath(__file__))

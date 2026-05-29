@@ -225,6 +225,146 @@ def train_joint(n_iters=8000, k_shot=10, lr=0.01, n_hidden=40, seed=0):
     return theta, history
 
 
+# --- 파라미터 구조([[W,b],...])용 벡터 연산 헬퍼 ----------------------
+def _zeros_like(params):
+    return [[np.zeros_like(W), np.zeros_like(b)] for W, b in params]
+
+
+def _accumulate(acc, g):
+    """acc += g (제자리)."""
+    for a, gi in zip(acc, g):
+        a[0] += gi[0]
+        a[1] += gi[1]
+    return acc
+
+
+def _combine(params, vec, coef):
+    """params + coef*vec 를 새로 만들어 반환."""
+    return [[W + coef * gW, b + coef * gb] for (W, b), (gW, gb) in zip(params, vec)]
+
+
+def _sub(v1, v2):
+    return [[a[0] - b[0], a[1] - b[1]] for a, b in zip(v1, v2)]
+
+
+def _scale(vec, coef):
+    return [[gW * coef, gb * coef] for gW, gb in vec]
+
+
+def train_maml_variant(second_order, n_iters=4000, meta_batch=10, k_shot=10,
+                       inner_lr=0.01, meta_lr=0.01, eps=1e-2,
+                       weight_decay=0.01, hvp_cap=50.0, n_hidden=40, seed=0):
+    """MAML — 1차(FOMAML) vs 2차(정식) 메타그래디언트 비교용.
+
+    이너 1스텝일 때 정식 메타그래디언트는
+        g_meta = (I - inner_lr·H) · g_query        (H = 서포트 손실의 헤시안)
+    이다. 여기서 H·g_query 는 '헤시안-벡터곱'으로, 유한차분으로 근사한다:
+        H·v ≈ [∇L_s(θ + ε·v) − ∇L_s(θ − ε·v)] / (2ε)
+    second_order=False 면 (I - inner_lr·H) 항을 빼고 g_query 만 쓴다(=FOMAML).
+
+    참고: 2차 항은 θ가 커지면 곡률(H)도 커지는 양의 피드백으로 불안정해지기 쉽다.
+    그래서 작은 가중치 감쇠(weight_decay)와 HVP 크기 제한(hvp_cap)으로 안정화한다.
+    (1차/2차에 동일하게 적용해 공정 비교.)
+    """
+    rng = np.random.default_rng(seed)
+    theta = init_params(rng, n_hidden)
+    history = []
+    for _ in range(n_iters):
+        grad_sum = _zeros_like(theta)
+        batch_loss = 0.0
+        for _ in range(meta_batch):
+            task = SineTask(rng)
+            x_s, y_s = task.sample(k_shot, rng)
+            x_q, y_q = task.sample(k_shot, rng)
+
+            _, g_s = loss_and_grad(theta, x_s, y_s)
+            g_s = clip_grads(g_s)
+            phi = sgd_step(theta, g_s, inner_lr)         # 이너 1스텝
+            lq, g_q = loss_and_grad(phi, x_q, y_q)
+            g_q = clip_grads(g_q)
+
+            if second_order:
+                # 헤시안-벡터곱(H·g_q)을 유한차분으로 근사 → 2차 항 포함.
+                # 수치 안정성을 위해 perturbation 크기를 eps로 '정규화'한다
+                # (g_q가 크든 작든 θ±(eps/‖g_q‖)·g_q 는 항상 작은 변화).
+                v_norm = np.sqrt(sum(np.sum(gW ** 2) + np.sum(gb ** 2) for gW, gb in g_q))
+                if v_norm < 1e-8:
+                    meta_g = g_q
+                else:
+                    e = eps / v_norm
+                    _, g_plus = loss_and_grad(_combine(theta, g_q, e), x_s, y_s)
+                    _, g_minus = loss_and_grad(_combine(theta, g_q, -e), x_s, y_s)
+                    hvp = clip_grads(_scale(_sub(g_plus, g_minus), 1.0 / (2 * e)),
+                                     max_norm=hvp_cap)
+                    meta_g = _sub(g_q, _scale(hvp, inner_lr))   # (I - inner_lr·H)·g_q
+            else:
+                meta_g = g_q                                # FOMAML
+
+            _accumulate(grad_sum, meta_g)
+            batch_loss += lq
+
+        # 가중치 감쇠 + 메타그래디언트 클리핑으로 안정적으로 갱신
+        avg = clip_grads(_scale(grad_sum, 1.0 / meta_batch))
+        theta = [[W * (1 - meta_lr * weight_decay) - meta_lr * gW,
+                  b * (1 - meta_lr * weight_decay) - meta_lr * gb]
+                 for (W, b), (gW, gb) in zip(theta, avg)]
+        history.append(batch_loss / meta_batch)
+    return theta, history
+
+
+def train_meta_sgd(n_iters=4000, meta_batch=10, k_shot=10, init_inner_lr=0.01,
+                   meta_lr=0.01, alpha_lr=0.001, n_hidden=40, seed=0):
+    """Meta-SGD (Li et al. 2017): '초기값 θ' 뿐 아니라 '파라미터별 학습률 α'까지 학습.
+
+    이너:  φ = θ - α ⊙ ∇L_s(θ)      (α는 θ와 같은 모양의 학습 가능한 벡터)
+    아우터(1차 근사): θ는 g_query 로, α는 -(g_query ⊙ g_support) 로 갱신.
+    → 각 파라미터가 '얼마나 크게 적응할지'를 데이터로부터 배운다.
+
+    반환: (theta, alpha, history)
+    """
+    rng = np.random.default_rng(seed)
+    theta = init_params(rng, n_hidden)
+    # 학습 가능한 per-parameter 학습률 (초기값 init_inner_lr)
+    alpha = [[np.full_like(W, init_inner_lr), np.full_like(b, init_inner_lr)]
+             for W, b in theta]
+    history = []
+    for _ in range(n_iters):
+        g_theta = _zeros_like(theta)
+        g_alpha = _zeros_like(theta)
+        batch_loss = 0.0
+        for _ in range(meta_batch):
+            task = SineTask(rng)
+            x_s, y_s = task.sample(k_shot, rng)
+            x_q, y_q = task.sample(k_shot, rng)
+
+            _, g_s = loss_and_grad(theta, x_s, y_s)
+            g_s = clip_grads(g_s)
+            # 이너: 파라미터별 학습률 α 사용
+            phi = [[W - aW * gW, b - ab * gb]
+                   for (W, b), (aW, ab), (gW, gb) in zip(theta, alpha, g_s)]
+            lq, g_q = loss_and_grad(phi, x_q, y_q)
+            g_q = clip_grads(g_q)
+
+            for i in range(len(theta)):
+                g_theta[i][0] += g_q[i][0]
+                g_theta[i][1] += g_q[i][1]
+                # dL_q/dα = g_q ⊙ (∂φ/∂α) = -(g_q ⊙ g_s)
+                g_alpha[i][0] += -(g_q[i][0] * g_s[i][0])
+                g_alpha[i][1] += -(g_q[i][1] * g_s[i][1])
+            batch_loss += lq
+
+        for i in range(len(theta)):
+            theta[i][0] -= meta_lr * g_theta[i][0] / meta_batch
+            theta[i][1] -= meta_lr * g_theta[i][1] / meta_batch
+            alpha[i][0] -= alpha_lr * g_alpha[i][0] / meta_batch
+            alpha[i][1] -= alpha_lr * g_alpha[i][1] / meta_batch
+            # 학습률이 음수가 되거나 폭주하지 않게 제한
+            alpha[i][0] = np.clip(alpha[i][0], 1e-4, 0.5)
+            alpha[i][1] = np.clip(alpha[i][1], 1e-4, 0.5)
+        history.append(batch_loss / meta_batch)
+    return theta, alpha, history
+
+
 # ----------------------------------------------------------------------
 # 4) 평가: 초기값에서 K-shot 적응 후 곡선 오차
 # ----------------------------------------------------------------------
@@ -232,10 +372,12 @@ def adaptation_curve(init_theta, test_tasks, k_shot, inner_lr, max_steps, seed=0
     """여러 테스트 태스크에 대해, 적응 단계 수에 따른 평균 MSE를 반환.
 
     반환 길이는 max_steps+1 (0번 적응 = 초기값 그대로).
+    inner_lr 은 스칼라(보통) 또는 파라미터별 학습률 구조(Meta-SGD의 α)일 수 있다.
     """
     rng = np.random.default_rng(seed)
     x_eval = np.linspace(-5, 5, 100).reshape(-1, 1)
     curve = np.zeros(max_steps + 1)
+    per_param = isinstance(inner_lr, list)  # Meta-SGD의 α면 True
 
     for task in test_tasks:
         x_s, y_s = task.sample(k_shot, rng)
@@ -245,6 +387,11 @@ def adaptation_curve(init_theta, test_tasks, k_shot, inner_lr, max_steps, seed=0
             pred, _ = forward(p, x_eval)
             curve[step] += np.mean((pred - y_true) ** 2)
             _, g = loss_and_grad(p, x_s, y_s)
-            p = sgd_step(p, clip_grads(g), inner_lr)
+            g = clip_grads(g)
+            if per_param:
+                p = [[W - aW * gW, b - ab * gb]
+                     for (W, b), (aW, ab), (gW, gb) in zip(p, inner_lr, g)]
+            else:
+                p = sgd_step(p, g, inner_lr)
 
     return curve / len(test_tasks)
