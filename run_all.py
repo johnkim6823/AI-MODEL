@@ -26,6 +26,13 @@ SCRIPTS = [
     ("04_reinforcement_learning", "01_multi_armed_bandit.py"),
     ("04_reinforcement_learning", "02_q_learning_gridworld.py"),
     ("04_reinforcement_learning", "03_rl_hyperparameter_experiments.py"),
+    ("05_deep_learning", "01_perceptron_to_mlp.py"),
+    ("05_deep_learning", "02_mlp_classification.py"),
+    ("05_deep_learning", "03_depth_activation_experiment.py"),
+    ("06_meta_learning", "01_few_shot_sine_problem.py"),
+    ("06_meta_learning", "02_maml.py"),
+    ("06_meta_learning", "03_reptile.py"),
+    ("06_meta_learning", "04_compare_methods.py"),
 ]
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
