@@ -23,6 +23,9 @@ SCRIPTS = [
     ("03_hyperparameter_experiments", "01_learning_rate_experiment.py"),
     ("03_hyperparameter_experiments", "02_epochs_experiment.py"),
     ("03_hyperparameter_experiments", "03_grid_search_heatmap.py"),
+    ("04_reinforcement_learning", "01_multi_armed_bandit.py"),
+    ("04_reinforcement_learning", "02_q_learning_gridworld.py"),
+    ("04_reinforcement_learning", "03_rl_hyperparameter_experiments.py"),
 ]
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
